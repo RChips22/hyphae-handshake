@@ -77,8 +77,9 @@ enum RustCryptoAeadProtocol {
 }
 
 impl AnyAead {
-    fn panic_uninitialized() -> ! {
-        panic!("uninitialized aead backend");
+    fn fmt_uninitialized() -> CryptoError {
+        debug_assert!(false, "uninitialized aead backend");
+        CryptoError::Internal
     }
 }
 
@@ -96,7 +97,7 @@ impl AeadBackend for AnyAead {
 
     fn encrypt_in_place(&self, key: &SymmetricKey, nonce: u64, ad: &[u8], buffer: &mut [u8]) -> Result<(), CryptoError> {
         match self.0 {
-            RustCryptoAeadProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoAeadProtocol::Uninitialized => return Err(Self::fmt_uninitialized()),
             RustCryptoAeadProtocol::AesGcm => AesGcm.encrypt_in_place(key, nonce, ad, buffer),
             RustCryptoAeadProtocol::ChaChaPoly => ChaChaPoly.encrypt_in_place(key, nonce, ad, buffer)
         }
@@ -104,7 +105,7 @@ impl AeadBackend for AnyAead {
 
     fn decrypt_in_place<'a> (&self, key: &SymmetricKey, nonce: u64, ad: &[u8], buffer: &'a mut [u8]) -> Result<&'a [u8], CryptoError> {
         match self.0 {
-            RustCryptoAeadProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoAeadProtocol::Uninitialized => return Err(Self::fmt_uninitialized()),
             RustCryptoAeadProtocol::AesGcm => AesGcm.decrypt_in_place(key, nonce, ad, buffer),
             RustCryptoAeadProtocol::ChaChaPoly => ChaChaPoly.decrypt_in_place(key, nonce, ad, buffer)
         }
@@ -112,7 +113,7 @@ impl AeadBackend for AnyAead {
 
     fn header_protection_mask(&self, key: &SymmetricKey, sample: &[u8], mask: &mut [u8]) -> Result<(), CryptoError> {
         match self.0 {
-            RustCryptoAeadProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoAeadProtocol::Uninitialized => return Err(Self::fmt_uninitialized()),
             RustCryptoAeadProtocol::AesGcm => AesGcm.header_protection_mask(key, sample, mask),
             RustCryptoAeadProtocol::ChaChaPoly => ChaChaPoly.header_protection_mask(key, sample, mask),
         }
@@ -120,7 +121,10 @@ impl AeadBackend for AnyAead {
 
     fn confidentiality_limit(&self) -> u64 {
         match self.0 {
-            RustCryptoAeadProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoAeadProtocol::Uninitialized => {
+                debug_assert!(false, "uninitialized aead backend");
+                0
+            }
             RustCryptoAeadProtocol::AesGcm => AesGcm.confidentiality_limit(),
             RustCryptoAeadProtocol::ChaChaPoly => ChaChaPoly.confidentiality_limit(),
         }
@@ -128,7 +132,10 @@ impl AeadBackend for AnyAead {
 
     fn integrity_limit(&self) -> u64 {
         match self.0 {
-            RustCryptoAeadProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoAeadProtocol::Uninitialized => {
+                debug_assert!(false, "uninitialized aead backend");
+                0
+            }
             RustCryptoAeadProtocol::AesGcm => AesGcm.integrity_limit(),
             RustCryptoAeadProtocol::ChaChaPoly => ChaChaPoly.integrity_limit(),
         }
@@ -260,8 +267,8 @@ impl AeadBackend for ChaChaPoly {
             return Err(CryptoError::Internal)
         }
 
-        let block = u32::from_le_bytes(sample[0..4].try_into().unwrap());
-        let nonce: &[u8; HYPHAE_AEAD_NONCE_LEN] = sample[4..].try_into().unwrap();
+        let block = u32::from_le_bytes(sample[0..4].try_into().map_err(|_| CryptoError::Internal)?);
+        let nonce: &[u8; HYPHAE_AEAD_NONCE_LEN] = sample[4..].try_into().map_err(|_| CryptoError::Internal)?;
         let mut cipher = ChaCha20::new(header_key.as_ref().into(), nonce.into());
         
         cipher.seek(block as u64 * 64);
@@ -298,13 +305,16 @@ enum RustCryptoHashProtocol {
 }
 
 impl AnyHash {
-    fn panic_uninitialized() -> ! {
-        panic!("uninitialized hash backend");
+    fn debug_assert_initialized(&self) {
+        debug_assert!(!matches!(self.0, RustCryptoHashProtocol::Uninitialized), "uninitialized hash backend");
     }
 
     fn hash_len(&self) -> usize {
         match self.0 {
-            RustCryptoHashProtocol::Uninitialized => Self::panic_uninitialized(),
+            RustCryptoHashProtocol::Uninitialized => {
+                self.debug_assert_initialized();
+                32
+            }
             RustCryptoHashProtocol::Blake2s |
             RustCryptoHashProtocol::Sha256 => 32,
             RustCryptoHashProtocol::Blake2b |
@@ -341,10 +351,16 @@ impl HashBackend for AnyHash {
 
     fn hash_into<'a> (&self, hash: &mut Self::Hash, mix_hash: bool, inputs: impl IntoIterator<Item = &'a [u8]>) {
         match self.0 {
-            RustCryptoHashProtocol::Uninitialized => Self::panic_uninitialized(),
-            RustCryptoHashProtocol::Blake2s => Blake2s.hash_into((&mut hash[0..32]).try_into().unwrap(), mix_hash, inputs),
+            RustCryptoHashProtocol::Uninitialized => self.debug_assert_initialized(),
+            RustCryptoHashProtocol::Blake2s => {
+                let Ok(h32) = (&mut hash[0..32]).try_into() else { debug_assert!(false); return; };
+                Blake2s.hash_into(h32, mix_hash, inputs)
+            }
             RustCryptoHashProtocol::Blake2b => Blake2b.hash_into(hash, mix_hash, inputs),
-            RustCryptoHashProtocol::Sha256 => Sha256.hash_into((&mut hash[0..32]).try_into().unwrap(), mix_hash, inputs),
+            RustCryptoHashProtocol::Sha256 => {
+                let Ok(h32) = (&mut hash[0..32]).try_into() else { debug_assert!(false); return; };
+                Sha256.hash_into(h32, mix_hash, inputs)
+            }
             RustCryptoHashProtocol::Sha512 => Sha512.hash_into(hash, mix_hash, inputs),
         }
     }

@@ -44,8 +44,8 @@ impl <H: HashBackend> AskChain<H> {
 
 impl <H: HashBackend> crate::crypto::TransportRekey for AskChain<H> {
     fn next_1rtt_secret(&mut self, level_secret: &mut SymmetricKey) {
-        if let Err(_) = self.get_ask_into(level_secret) {
-            panic!("rekey not initialized");
+        if self.get_ask_into(level_secret).is_err() {
+            debug_assert!(false, "rekey not initialized");
         }
     }
 }

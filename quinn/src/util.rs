@@ -38,7 +38,9 @@ impl HandshakeMessageFramer {
                     message.extend_from_slice(take);
                     *bytes_remaining -= take_amt;
                     if *bytes_remaining == 0 {
-                        self.messages_ready.push_back(self.message_in_progress.take().unwrap().1)
+                        if let Some((_, msg)) = self.message_in_progress.take() {
+                            self.messages_ready.push_back(msg);
+                        }
                     }
                     buffer = rem;
                 },

@@ -75,7 +75,13 @@ impl <T: HashBackend> HashExt for T {
         let mut last_output = Zeroizing::new(self.zeros());
 
         while let Some(output_truncated) = output_iter.next() {
-            n = n.checked_add(1).expect("too many HKDF outputs requested");
+            n = match n.checked_add(1) {
+                Some(v) => v,
+                None => {
+                    debug_assert!(false, "too many HKDF outputs requested");
+                    break;
+                }
+            };
 
             if n == 1 {
                 self.hmac(&prk, &mut temp_output, [info, &[n]]);
@@ -87,7 +93,8 @@ impl <T: HashBackend> HashExt for T {
             last_output.clone_from(&temp_output);
             let output = self.hash_as_slice(&temp_output);
             if output_truncated.len() > output.len() {
-                panic!("truncated hash output cannot be longer than {}", output.len());
+                debug_assert!(false, "truncated hash output cannot be longer than {}", output.len());
+                break;
             }
             output_truncated.copy_from_slice(&output[0..output_truncated.len()]);
         };

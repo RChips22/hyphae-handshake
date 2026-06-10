@@ -202,7 +202,7 @@ impl <'a, T: Buffer> VarLengthPrefixBuffer<'a, T> {
                 return Err(BufferFullError);
             }
             for _ in 0..pad_by {
-                self.inner.push(0).unwrap(); // Already checked remaining.
+                let _ = self.inner.push(0); // Already checked remaining.
             }
             self.inner.as_mut().copy_within(cur_prefix_size.len()..orig_inner_len, min_prefix_size.len());
         }
@@ -277,7 +277,7 @@ impl <T: Buffer> Buffer for VarLengthPrefixBuffer<'_, T> {
 
     fn clear(&mut self) {
         self.inner.clear();
-        self.push(0).unwrap(); // Buffer already had space for this.
+        let _ = self.push(0); // Buffer already had space for this.
     }
 
     fn clear_range(&mut self, range: Range<usize>) {
@@ -374,10 +374,17 @@ impl VarIntSize {
     /// Panics if buffer is not 1, 2, 4, or 8 bytes or if `value` cannot
     /// fit in a `VarInt` of `buffer.len()`.
     pub fn write_varint(value: u64, buffer: &mut [u8]) {
-        let buffer_size = Self::from_len(buffer.len()).expect("valid buffer len");
-        let min_buffer_size = Self::from_value(value).expect("valid varint value");
+        let Some(buffer_size) = Self::from_len(buffer.len()) else {
+            debug_assert!(false, "invalid buffer len for varint");
+            return;
+        };
+        let Some(min_buffer_size) = Self::from_value(value) else {
+            debug_assert!(false, "invalid varint value");
+            return;
+        };
         if buffer_size < min_buffer_size {
-            panic!("buffer too small to hold value");
+            debug_assert!(false, "buffer too small to hold value");
+            return;
         }
         match buffer_size {
             VarIntSize::VarInt1 => buffer.copy_from_slice((value as u8).to_be_bytes().as_slice()),

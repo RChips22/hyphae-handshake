@@ -113,16 +113,21 @@ where
 
         let initial_crypto = self.crypto.initial_crypto();
         let mut retry_key = SymmetricKey::default();
-        initial_crypto.retry_tag_secret(HandshakeVersion::Version1, QUIC_V1_TRANSPORT_LABEL, &orig_dst_cid, &mut retry_key)
-            .expect("initial crypto can generate retry secret");
+        if initial_crypto.retry_tag_secret(HandshakeVersion::Version1, QUIC_V1_TRANSPORT_LABEL, &orig_dst_cid, &mut retry_key).is_err() {
+            return [0u8; HYPHAE_AEAD_TAG_LEN];
+        }
 
         let mut packet_in_place = Vec::with_capacity(packet.len() + HYPHAE_AEAD_TAG_LEN);
         packet_in_place.extend_from_slice(packet);
         packet_in_place.extend_from_slice(&[0u8; HYPHAE_AEAD_TAG_LEN]);
-        initial_crypto.encrypt_in_place(&retry_key, 0, b"", &mut packet_in_place)
-            .expect("initial crypto can encrypt retry packet");
+        if initial_crypto.encrypt_in_place(&retry_key, 0, b"", &mut packet_in_place).is_err() {
+            return [0u8; HYPHAE_AEAD_TAG_LEN];
+        }
 
-        packet_in_place[packet.len()..].try_into().unwrap()
+        let Ok(tag) = packet_in_place[packet.len()..].try_into() else {
+            return [0u8; HYPHAE_AEAD_TAG_LEN];
+        };
+        tag
     }
 
     fn start_session(

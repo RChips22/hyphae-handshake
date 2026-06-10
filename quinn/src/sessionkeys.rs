@@ -37,8 +37,9 @@ pub fn initial_keys(
 ) -> crypto::Keys
 {
     let mut intial_secret = SymmetricKey::default();
-    initial_crypto.initial_level_secret(handshake_version, transport_label, client_dcid, &mut intial_secret)
-        .expect("initial crypto can calculate initial keys");
+    if let Err(_) = initial_crypto.initial_level_secret(handshake_version, transport_label, client_dcid, &mut intial_secret) {
+        debug_assert!(false, "initial crypto can calculate initial keys");
+    }
     keys_from_level_secret(local_is_initiator, &intial_secret, initial_crypto)
 }
 
@@ -52,8 +53,10 @@ impl <C: TransportCrypto> HeaderProtectionKey<C> {
     fn apply(&self, encrypt: bool, pn_offset: usize, packet: &mut [u8]) {
         let mut mask = [0u8; 5];
         let sample_start = pn_offset + 4;
-        self.driver.header_protection_mask(&self.key, &packet[sample_start..sample_start + HYPHAE_HEADER_SAMPLE_LEN], &mut mask)
-            .expect("transport crypto can calculate header mask");
+        if let Err(_) = self.driver.header_protection_mask(&self.key, &packet[sample_start..sample_start + HYPHAE_HEADER_SAMPLE_LEN], &mut mask) {
+            debug_assert!(false, "transport crypto can calculate header mask");
+            return;
+        }
 
         let header_0_orig = packet[0];
         if packet[0] & 0x80 == 0x80 {
@@ -127,8 +130,9 @@ impl <C: TransportCrypto + Send + Sync + 'static> PacketProtectionKey<C> {
 impl <C: TransportCrypto + Send + Sync + 'static> crypto::PacketKey for PacketProtectionKey<C> {
     fn encrypt(&self, packet: u64, buf: &mut [u8], header_len: usize) {
         let (header, payload) = buf.split_at_mut(header_len);
-        self.driver.encrypt_in_place(&self.key, packet, header, payload)
-            .expect("transport crypto can encrypt packet");
+        if let Err(_) = self.driver.encrypt_in_place(&self.key, packet, header, payload) {
+            debug_assert!(false, "transport crypto can encrypt packet");
+        }
     }
 
     fn decrypt(
