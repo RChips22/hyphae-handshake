@@ -5,7 +5,7 @@ use quinn_proto::{crypto, transport_parameters::TransportParameters, ConnectionI
 
 use crate::{sessionkeys::{initial_keys, keys_from_level_secret, packet_keys_from_level_secret}, util::HandshakeMessageFramer, config::HyphaeCryptoConfig, customization::QuinnHandshakeData};
 
-pub struct HyphaeSession<T, B>
+pub(crate) struct HyphaeSession<T, B>
 where
     T: SyncHandshakeConfig,
     T::Driver: QuinnHandshakeData,
@@ -160,6 +160,9 @@ where
     }
 
     fn is_handshaking(&self) -> bool {
+        if self.failed {
+            return false;
+        }
         match self.handshake.as_ref() {
             Some(handshake) => !handshake.is_handshake_finished(),
             None => true,

@@ -3,10 +3,10 @@ use std::collections::VecDeque;
 use quinn_proto::{VarInt, coding::Codec as _};
 
 #[derive(Debug)]
-pub struct InvalidHandshakeMessage;
+pub(crate) struct InvalidHandshakeMessage;
 
 #[derive(Default)]
-pub struct HandshakeMessageFramer {
+pub(crate) struct HandshakeMessageFramer {
     message_in_progress: Option<(usize, Vec<u8>)>,
     messages_ready: VecDeque<Vec<u8>>,
 }

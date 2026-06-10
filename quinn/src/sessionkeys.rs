@@ -1,7 +1,7 @@
 use hyphae_handshake::{crypto::{InitialCrypto, SymmetricKey, TransportCrypto, HYPHAE_AEAD_TAG_LEN, HYPHAE_HEADER_SAMPLE_LEN}, handshake::{HandshakeVersion, HYPHAE_INIT_DATA_HKDF_LABEL, HYPHAE_INIT_HP_HKDF_LABEL, HYPHAE_RESP_DATA_HKDF_LABEL, HYPHAE_RESP_HP_HKDF_LABEL}};
 use quinn_proto::crypto;
 
-pub fn keys_from_level_secret(
+pub(crate) fn keys_from_level_secret(
     local_is_initiator: bool,
     level_secret: &SymmetricKey,
     driver: &(impl TransportCrypto + Send + Sync + 'static)
@@ -16,7 +16,7 @@ pub fn keys_from_level_secret(
     }
 }
 
-pub fn packet_keys_from_level_secret(
+pub(crate) fn packet_keys_from_level_secret(
     local_is_initiator: bool,
     level_secret: &SymmetricKey,
     driver: &(impl TransportCrypto + Send + Sync + 'static)
@@ -28,7 +28,7 @@ pub fn packet_keys_from_level_secret(
     }
 }
 
-pub fn initial_keys(
+pub(crate) fn initial_keys(
     local_is_initiator: bool,
     handshake_version: HandshakeVersion,
     transport_label: &[u8],
@@ -79,7 +79,7 @@ impl <C: TransportCrypto> HeaderProtectionKey<C> {
 }
 
 impl <C: TransportCrypto + Send + Sync + 'static> HeaderProtectionKey<C> {
-    pub fn new(initiator: bool, level_secret: &SymmetricKey, driver: C) -> Box<dyn crypto::HeaderKey> {
+    pub(crate) fn new(initiator: bool, level_secret: &SymmetricKey, driver: C) -> Box<dyn crypto::HeaderKey> {
         let mut this = Box::new(Self {
             driver,
             key: SymmetricKey::default(),
@@ -113,7 +113,7 @@ struct PacketProtectionKey<C: TransportCrypto> {
 }
 
 impl <C: TransportCrypto + Send + Sync + 'static> PacketProtectionKey<C> {
-    pub fn new(initiator: bool, level_secret: &SymmetricKey, driver: C) -> Box<dyn crypto::PacketKey> {
+    pub(crate) fn new(initiator: bool, level_secret: &SymmetricKey, driver: C) -> Box<dyn crypto::PacketKey> {
         let mut this = Box::new(Self {
             driver,
             key: SymmetricKey::default(),
