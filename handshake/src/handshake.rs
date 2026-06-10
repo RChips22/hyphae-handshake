@@ -717,22 +717,23 @@ impl PayloadFrame {
         Ok(remaining.split_at(payload_len))
     }
 
-    pub fn next_frame(remaining: &[u8], message: HandshakeMessage, from_initiator: bool) -> Result<Option<(Self, &[u8], &[u8])>, Error> {
-        let Some(frame_id) = remaining.get(0).cloned() else {
-            return Ok(None);
-        };
+    pub fn next_frame(mut remaining: &[u8], message: HandshakeMessage, from_initiator: bool) -> Result<Option<(Self, &[u8], &[u8])>, Error> {
+        loop {
+            let Some(frame_id) = remaining.get(0).cloned() else {
+                return Ok(None);
+            };
 
-        let frame_type = Self::from_id(frame_id)?;
-        if let Some(frame_type) = frame_type {
-            frame_type.ok_in(message, from_initiator)?;
-        }
-        let (frame_payload, remaining) = Self::get_frame_payload(frame_type, &remaining[1..])?;
+            let frame_type = Self::from_id(frame_id)?;
+            if let Some(frame_type) = frame_type {
+                frame_type.ok_in(message, from_initiator)?;
+            }
+            let (frame_payload, rest) = Self::get_frame_payload(frame_type, &remaining[1..])?;
 
-        match frame_type {
-            Some(frame_type) if frame_type != Self::Padding =>
-                Ok(Some((frame_type, frame_payload, remaining))),
-
-            _ => Self::next_frame(remaining, message, from_initiator), // todo, this could be an issue if it isn't a tail call
+            match frame_type {
+                Some(frame_type) if frame_type != Self::Padding =>
+                    return Ok(Some((frame_type, frame_payload, rest))),
+                _ => remaining = rest,
+            }
         }
     }
     

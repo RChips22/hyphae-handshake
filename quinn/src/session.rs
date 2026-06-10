@@ -42,7 +42,7 @@ where
                 },
                 None => {
                     if self.initiator {
-                        unreachable!();
+                        return Err(Error::Internal);
                     }
                     self.handshake.insert(
                         AllocHyphaeHandshake::new_responder(
@@ -76,19 +76,20 @@ where
         let handshake = match self.handshake.as_mut() {
             Some(h) => h,
             None => {
-                if !self.initiator {
-                    unreachable!();
+                if self.initiator {
+                    self.handshake.insert(
+                        AllocHyphaeHandshake::new_initiator(
+                            &self.config.handshake_config,
+                            self.config.crypto.clone(),
+                            HandshakeVersion::Version1,
+                            QUIC_V1_TRANSPORT_LABEL,
+                            self.params.take().unwrap_or_default(),
+                            self.server_name.take().unwrap_or_default().as_str()
+                        )?
+                    )
+                } else {
+                    return Err(Error::Internal);
                 }
-                self.handshake.insert(
-                    AllocHyphaeHandshake::new_initiator(
-                        &self.config.handshake_config,
-                        self.config.crypto.clone(),
-                        HandshakeVersion::Version1,
-                        QUIC_V1_TRANSPORT_LABEL,
-                        self.params.take().unwrap_or_default(),
-                        self.server_name.take().unwrap_or_default().as_str()
-                    )?
-                )
             },
         };
 
