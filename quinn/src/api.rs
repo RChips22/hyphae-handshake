@@ -9,11 +9,27 @@ use tokio::time::timeout;
 use crate::builder::{DEFAULT_MAX_MSG1_PAYLOAD_LEN, V1_PATTERN};
 use crate::customization::HyphaePeerIdentity;
 
+/// Non-sensitive stages of the handshake lifecycle.
+#[derive(Debug, Clone)]
+pub enum HandshakeStage {
+    /// Client connect has been initiated.
+    ClientConnecting,
+    /// Server has accepted a new incoming connection.
+    ServerAccepted,
+    /// QUIC connection established, before extracting handshake result.
+    ConnectionEstablished,
+    /// Handshake result successfully extracted.
+    HandshakeComplete,
+}
+
 #[derive(Clone)]
 pub struct HandshakeOptions {
     pub timeout: Duration,
     pub max_payload_len: usize,
     pub expected_pattern: &'static str,
+    pub allowed_patterns: Vec<&'static str>,
+    pub pinned_peer_key: Option<[u8; 32]>,
+    pub handshake_hook: Option<Arc<dyn Fn(HandshakeStage) + Send + Sync>>,
     pub anti_downgrade_hook: Option<Arc<dyn Fn(&HandshakeResultV1) -> Result<(), HandshakeApiError> + Send + Sync>>,
 }
 
@@ -23,6 +39,9 @@ impl Default for HandshakeOptions {
             timeout: Duration::from_secs(10),
             max_payload_len: DEFAULT_MAX_MSG1_PAYLOAD_LEN,
             expected_pattern: V1_PATTERN,
+            allowed_patterns: vec![V1_PATTERN],
+            pinned_peer_key: None,
+            handshake_hook: None,
             anti_downgrade_hook: None,
         }
     }
@@ -44,6 +63,7 @@ pub enum HandshakeApiError {
     IoError(String),
     PayloadError(String),
     Timeout,
+    Crypto(String),
 }
 
 impl fmt::Display for HandshakeApiError {
@@ -55,6 +75,7 @@ impl fmt::Display for HandshakeApiError {
             Self::IoError(msg) => write!(f, "io_error: {msg}"),
             Self::PayloadError(msg) => write!(f, "payload_error: {msg}"),
             Self::Timeout => write!(f, "timeout"),
+            Self::Crypto(msg) => write!(f, "crypto_error: {msg}"),
         }
     }
 }
@@ -69,6 +90,8 @@ pub async fn client_connect(
 ) -> Result<(Connection, HandshakeResultV1), HandshakeApiError> {
     validate_options(&options)?;
 
+    fire_hook(&options, HandshakeStage::ClientConnecting);
+
     let connecting = endpoint
         .connect(remote_addr, server_name)
         .map_err(|e| HandshakeApiError::IoError(e.to_string()))?;
@@ -78,7 +101,11 @@ pub async fn client_connect(
         .map_err(|_| HandshakeApiError::Timeout)?
         .map_err(|e| HandshakeApiError::IoError(e.to_string()))?;
 
+    fire_hook(&options, HandshakeStage::ConnectionEstablished);
+
     let result = extract_handshake_result(&connection, &options)?;
+
+    fire_hook(&options, HandshakeStage::HandshakeComplete);
     Ok((connection, result))
 }
 
@@ -93,6 +120,8 @@ pub async fn server_accept(
             HandshakeApiError::IoError("endpoint closed before incoming connection".to_owned())
         })?;
 
+        fire_hook(&options, HandshakeStage::ServerAccepted);
+
         incoming
             .await
             .map_err(|e| HandshakeApiError::IoError(e.to_string()))
@@ -100,12 +129,22 @@ pub async fn server_accept(
     .await
     .map_err(|_| HandshakeApiError::Timeout)??;
 
+    fire_hook(&options, HandshakeStage::ConnectionEstablished);
+
     let result = extract_handshake_result(&connection, &options)?;
+
+    fire_hook(&options, HandshakeStage::HandshakeComplete);
     Ok((connection, result))
 }
 
+fn fire_hook(options: &HandshakeOptions, stage: HandshakeStage) {
+    if let Some(hook) = options.handshake_hook.as_ref() {
+        hook(stage);
+    }
+}
+
 fn validate_options(options: &HandshakeOptions) -> Result<(), HandshakeApiError> {
-    if options.expected_pattern != V1_PATTERN {
+    if !options.allowed_patterns.contains(&options.expected_pattern) {
         return Err(HandshakeApiError::UnsupportedPattern(options.expected_pattern.to_owned()));
     }
     Ok(())
@@ -165,6 +204,18 @@ fn extract_handshake_result(
         }
         None => None,
     };
+
+    if let Some(pinned) = options.pinned_peer_key {
+        match peer_static {
+            Some(actual) if actual != pinned => {
+                return Err(HandshakeApiError::KeyError("peer key mismatch".to_owned()));
+            }
+            None => {
+                return Err(HandshakeApiError::KeyError("peer provides no static key for pinning".to_owned()));
+            }
+            _ => {}
+        }
+    }
 
     if let Some(msg1_payload) = identity.msg1_payload.as_ref() {
         if msg1_payload.len() > options.max_payload_len {

@@ -11,7 +11,7 @@ use crate::customization::{HandshakeConfig, HandshakeDriver, PayloadDriver, Hand
 use crate::buffer::Buffer;
 use crate::crypto::{CryptoError, SecretKeySetup, SyncCryptoBackend};
 use base64ct::Encoding;
-use rand_core::OsRng;
+use crate::rng::{default_rng_factory, DynRng, RngFactory};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const V1_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
@@ -27,11 +27,13 @@ where
     T: Clone + PayloadDriver + QuinnHandshakeData + Send + Sync + 'static
 {
     protocol: &'a str,
+    allowed_patterns: Vec<String>,
     prologue: Option<&'a [u8]>,
     s: Option<&'a [u8]>,
     rs: Option<&'a [u8]>,
     rs_from_server_name: bool,
     max_msg1_payload_len: usize,
+    rng_factory: RngFactory,
     payload_driver: T,
 }
 
@@ -40,11 +42,13 @@ impl <'a> HandshakeBuilder<'a, EmptyPayloadDriver> {
     pub fn new(protocol: &'a str) -> Self {
         Self {
             protocol,
+            allowed_patterns: vec![V1_PATTERN.to_owned()],
             prologue: None,
             s: None,
             rs: None,
             rs_from_server_name: false,
             max_msg1_payload_len: DEFAULT_MAX_MSG1_PAYLOAD_LEN,
+            rng_factory: default_rng_factory(),
             payload_driver: EmptyPayloadDriver,
         }
     }
@@ -95,17 +99,41 @@ where
     {
         HandshakeBuilder {
             protocol: self.protocol,
+            allowed_patterns: self.allowed_patterns,
             prologue: self.prologue,
             s: self.s,
             rs: self.rs,
             rs_from_server_name: self.rs_from_server_name,
             max_msg1_payload_len: self.max_msg1_payload_len,
+            rng_factory: self.rng_factory,
             payload_driver,
         }
     }
 
     pub fn with_max_msg1_payload_len(mut self, max_msg1_payload_len: usize) -> Self {
         self.max_msg1_payload_len = max_msg1_payload_len;
+        self
+    }
+
+    /// Inject a custom RNG factory for cryptographic random number generation.
+    ///
+    /// Each handshake will call the factory to obtain a fresh RNG instance
+    /// for ephemeral key generation.
+    ///
+    /// Defaults to `OsRng`.
+    pub fn with_rng_factory(mut self, rng_factory: RngFactory) -> Self {
+        self.rng_factory = rng_factory;
+        self
+    }
+
+    /// Set the list of allowed Noise patterns for this handshake builder.
+    ///
+    /// The `protocol` must be in this list. Once the handshake completes,
+    /// the `negotiated_pattern` in the result is checked against this list.
+    ///
+    /// Defaults to `[V1_PATTERN]`.
+    pub fn with_allowed_patterns(mut self, patterns: &[&str]) -> Self {
+        self.allowed_patterns = patterns.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -137,7 +165,7 @@ where
     pub fn build<B: SyncCryptoBackend> (self, crypto_backend: B)
         -> Result<Arc<HyphaeCryptoConfig<BasicHandshakeConfig<T>, B>>, CryptoError>
     {
-        if self.protocol != V1_PATTERN {
+        if !self.allowed_patterns.iter().any(|p| p == self.protocol) {
             return Err(CryptoError::UnsupportedPattern);
         }
 
@@ -155,11 +183,13 @@ where
 
         Ok(BasicHandshakeConfig {
             protocol: self.protocol.into(),
+            allowed_patterns: self.allowed_patterns,
             prologue: self.prologue.map(Vec::from),
             s: self.s.map(Vec::from),
             rs: self.rs.map(Vec::from),
             rs_from_server_name: self.rs_from_server_name,
             max_msg1_payload_len: self.max_msg1_payload_len,
+            rng_factory: self.rng_factory,
             payload_driver: self.payload_driver
         })
     }
@@ -172,11 +202,14 @@ where
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct BasicHandshakeConfig<T: PayloadDriver + Clone> {
     protocol: String,
+    allowed_patterns: Vec<String>,
     prologue: Option<Vec<u8>>,
     s: Option<Vec<u8>>,
     rs: Option<Vec<u8>>,
     rs_from_server_name: bool,
     max_msg1_payload_len: usize,
+    #[zeroize(skip)]
+    rng_factory: RngFactory,
     #[zeroize(skip)]
     payload_driver: T,
 }
@@ -198,12 +231,12 @@ where
         };
 
         noise_handshake.initialize(
-            &mut OsRng,
-            &self.protocol, 
+            &mut DynRng::new((self.rng_factory)()),
+            &self.protocol,
             self.prologue.as_ref().map(Vec::as_slice).unwrap_or(b""),
             self.s.as_ref().map(Vec::as_slice).map(SecretKeySetup::from),
             sn_rs.as_ref().or(self.rs.as_ref()).map(Vec::as_slice))?;
-        
+
         Ok(BasicHandshakeDriver{
             payload_driver: self.payload_driver.clone(),
             msg1_payload: None,
@@ -218,12 +251,12 @@ where
         }
 
         noise_handshake.initialize(
-            &mut OsRng,
-            &self.protocol, 
+            &mut DynRng::new((self.rng_factory)()),
+            &self.protocol,
             self.prologue.as_ref().map(Vec::as_slice).unwrap_or(b""),
             self.s.as_ref().map(Vec::as_slice).map(SecretKeySetup::from),
             self.rs.as_ref().map(Vec::as_slice))?;
-        
+
         Ok(BasicHandshakeDriver{
             payload_driver: self.payload_driver.clone(),
             msg1_payload: None,

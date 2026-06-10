@@ -36,7 +36,16 @@ This release introduces a V1 constrained handshake surface with a single allowed
   - `timeout`
   - `max_payload_len`
   - `expected_pattern`
+  - `allowed_patterns` — whitelist of acceptable Noir patterns (default: `[V1_PATTERN]`)
+  - `pinned_peer_key` — optional peer static key to pin; fails with `KeyError` on mismatch
+  - `handshake_hook` — lifecycle stage callback (`HandshakeStage`)
   - `anti_downgrade_hook`
+
+- `HandshakeStage` enum (non-sensitive debug stages):
+  - `ClientConnecting`
+  - `ServerAccepted`
+  - `ConnectionEstablished`
+  - `HandshakeComplete`
 
 ## Error Mapping
 
@@ -48,9 +57,13 @@ New layered API errors use:
 - `IoError`
 - `PayloadError`
 - `Timeout`
+- `CryptoError` — wraps lower-level crypto failures
 
 ## Builder Changes
 
 - `HandshakeBuilder::new_v1()` is provided and recommended.
-- `HandshakeBuilder::build(...)` rejects non-V1 patterns with `CryptoError::UnsupportedPattern`.
+- `HandshakeBuilder::build(...)` rejects patterns not in the allowed list with `CryptoError::UnsupportedPattern`.
+- `HandshakeBuilder::with_allowed_patterns(...)` sets the accepted Noise protocol whitelist.
+- `HandshakeBuilder::with_rng_factory(...)` injects a custom cryptographic RNG factory.
 - `HandshakeBuilder::with_max_msg1_payload_len(...)` sets msg1 payload limits.
+- `RngFactory` type and `SecureRng` trait provide RNG abstraction over `OsRng`.

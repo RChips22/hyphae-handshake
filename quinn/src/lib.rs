@@ -28,6 +28,7 @@
 pub mod builder;
 pub mod config;
 pub mod customization;
+pub mod rng;
 #[cfg(any(test, feature = "helper"))]
 pub mod api;
 #[cfg(any(test, feature = "helper"))]
@@ -64,8 +65,9 @@ pub use hyphae_handshake::Error;
 // Re-export common `quinn_hyphae` types.
 pub use builder::HandshakeBuilder;
 pub use builder::V1_PATTERN;
+pub use rng::{default_rng_factory, RngFactory};
 #[cfg(any(test, feature = "helper"))]
-pub use api::{client_connect, server_accept, HandshakeApiError, HandshakeOptions, HandshakeResultV1};
+pub use api::{client_connect, server_accept, HandshakeApiError, HandshakeOptions, HandshakeResultV1, HandshakeStage};
 pub use customization::HyphaePeerIdentity;
 
 #[cfg(test)]
