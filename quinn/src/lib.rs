@@ -29,6 +29,8 @@ pub mod builder;
 pub mod config;
 pub mod customization;
 #[cfg(any(test, feature = "helper"))]
+pub mod api;
+#[cfg(any(test, feature = "helper"))]
 pub mod helper;
 mod session;
 mod sessionkeys;
@@ -61,6 +63,9 @@ pub use hyphae_handshake::Error;
 
 // Re-export common `quinn_hyphae` types.
 pub use builder::HandshakeBuilder;
+pub use builder::V1_PATTERN;
+#[cfg(any(test, feature = "helper"))]
+pub use api::{client_connect, server_accept, HandshakeApiError, HandshakeOptions, HandshakeResultV1};
 pub use customization::HyphaePeerIdentity;
 
 #[cfg(test)]

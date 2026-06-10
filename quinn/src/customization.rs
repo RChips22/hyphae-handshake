@@ -62,6 +62,12 @@ pub struct HyphaePeerIdentity {
 
     /// Final hash of the Noise handshake once the handshake is complete.
     pub final_handshake_hash: Option<Vec<u8>>,
+
+    /// Initiator payload carried in Noise message 1, if present.
+    pub msg1_payload: Option<Vec<u8>>,
+
+    /// Negotiated Noise pattern string.
+    pub negotiated_pattern: String,
 }
 
 impl HyphaePeerIdentity {
@@ -71,6 +77,8 @@ impl HyphaePeerIdentity {
         HyphaePeerIdentity {
             remote_public: remote_public.map(Vec::from),
             final_handshake_hash: final_handshake_hash.map(Vec::from),
+            msg1_payload: None,
+            negotiated_pattern: String::new(),
         }
     }
 }
@@ -80,9 +88,12 @@ impl std::fmt::Debug for HyphaePeerIdentity {
         use base64ct::Encoding as _;
         let rs = self.remote_public.as_ref().map(Vec::as_slice).map(base64ct::Base64::encode_string);
         let h = self.final_handshake_hash.as_ref().map(Vec::as_slice).map(base16ct::upper::encode_string);
+        let msg1_len = self.msg1_payload.as_ref().map(Vec::len);
         f.debug_struct("HyphaePeerIdentity")
             .field("remote_public", &rs)
             .field("final_handshake_hash", &h)
+            .field("msg1_payload_len", &msg1_len)
+            .field("negotiated_pattern", &self.negotiated_pattern)
             .finish()
     }
 }

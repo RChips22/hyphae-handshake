@@ -8,19 +8,20 @@ Hyphae Handshake (*Noise Handshakes for QUIC*)
 
 Hyphae secures QUIC with Noise instead of TLS.
 
-Unlike other Noise handshake proposals for QUIC, Hyphae supports *all
-Noise handshake patterns* (not just IK). Hyphae supports custom Noise
-payloads.
+Hyphae currently ships with a hardened V1 profile that fixes the
+handshake to `Noise_XX_25519_ChaChaPoly_BLAKE2s` and exposes a stable
+handshake result API.
 
 ### Features:
 
 - Secure QUIC with a Noise handshake instead of TLS
-- Use **any handshake pattern**, AEAD, and hash algorithm (not just IK)
+- V1 locked pattern: `Noise_XX_25519_ChaChaPoly_BLAKE2s`
 - Quinn support in the `quinn-hyphae` crate
 - Customizable:
   - Applications have complete control of the Noise handshake
   - Pluggable cryptographic and Noise backends (with built-in support
     for Rust Crypto)
+- Unified handshake result extraction (`HandshakeResultV1`)
 - Optional key-logging for diagnostics
 - QUIC header protection and initial packet space obfuscation
 
@@ -55,8 +56,8 @@ use quinn_hyphae::{
 
 // Set up a `quinn::Endpoint` server with a Noise XX handshake:
 let secret_key = RustCryptoBackend.new_secret_key(&mut rand_core::OsRng);
-let crypto_config = 
-    HandshakeBuilder::new("Noise_XX_25519_ChaChaPoly_BLAKE2s")
+let crypto_config =
+    HandshakeBuilder::new_v1()
     .with_static_key(&secret_key)
     .build(RustCryptoBackend)?;
 
@@ -64,23 +65,22 @@ let socket = std::net::UdpSocket::bind("127.0.0.1:0")?;
 let endpoint = hyphae_server_endpoint(crypto_config, None, socket)?;
 ```
 
-It is also easy to set up bidirectional endpoints that validate a peer's
-public key for outgoing connections:
+For application-facing flows, use the V1 API to get the QUIC connection
+and normalized handshake data from a single call:
 
 ```rust
-let secret_key = RustCryptoBackend.new_secret_key(&mut rand_core::OsRng);
-let crypto_config = 
-    HandshakeBuilder::new("Noise_XK_25519_ChaChaPoly_BLAKE2s")
-    .with_static_key(&secret_key)
-    .with_server_name_as_remote_public()
-    .build(RustCryptoBackend)?;
+use quinn_hyphae::{
+    client_connect,
+    HandshakeOptions,
+};
 
-let socket = UdpSocket::bind("127.0.0.1:0")?;
-let endpoint = hyphae_bidirectional_endpoint(crypto_config, None, socket)?;
+let options = HandshakeOptions::default();
+let (conn, handshake) = client_connect(&endpoint, peer_addr, "", options).await?;
 
-// The peer's public key parsed from `server_name` and validated during
-// the handshake.
-let conn = endpoint.connect(peer_addr, "zR4F09MibpGVw/L9oDvuItojQ/9MOSCt9mMK0kUNggA=")?.await?;
+assert_eq!(handshake.negotiated_pattern, "Noise_XX_25519_ChaChaPoly_BLAKE2s");
+let _hash: [u8; 32] = handshake.handshake_hash;
+let _peer_static = handshake.peer_static;
+let _msg1_payload = handshake.msg1_payload;
 ```
 
 There are more [examples](https://github.com/WillBuik/hyphae-handshake/tree/main/quinn/examples)

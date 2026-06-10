@@ -230,8 +230,35 @@ impl <T: Buffer> Drop for VarLengthPrefixBuffer<'_, T> {
 
 impl <T: Buffer> Buffer for VarLengthPrefixBuffer<'_, T> {
     fn remaining(&self) -> usize {
-        // TODO, this is the worst case, fix me
-        self.inner.remaining().checked_sub(7).unwrap_or_default()
+        let current_len = self.len();
+        let current_prefix = self.get_prefix_size();
+        let remaining = self.inner.remaining();
+        let mut max_additional = 0usize;
+
+        for prefix_size in [VarIntSize::VarInt1, VarIntSize::VarInt2, VarIntSize::VarInt4, VarIntSize::VarInt8] {
+            if prefix_size < current_prefix {
+                continue;
+            }
+
+            let pad_by = prefix_size.len() - current_prefix.len();
+            if remaining < pad_by {
+                continue;
+            }
+
+            let min_total_len = current_len.max(prefix_size.min_value() as usize);
+            let max_total_len = (current_len + (remaining - pad_by)).min(prefix_size.max_value() as usize);
+
+            if max_total_len < min_total_len {
+                continue;
+            }
+
+            let additional = max_total_len - current_len;
+            if additional > max_additional {
+                max_additional = additional;
+            }
+        }
+
+        max_additional
     }
 
     fn len(&self) -> usize {
@@ -302,6 +329,15 @@ impl VarIntSize {
 
     pub const fn max_value(self) -> u64 {
         2u64.pow(self.len() as u32 * 8 - 2) - 1
+    }
+
+    pub const fn min_value(self) -> u64 {
+        match self {
+            Self::VarInt1 => 0,
+            Self::VarInt2 => Self::VarInt1.max_value() + 1,
+            Self::VarInt4 => Self::VarInt2.max_value() + 1,
+            Self::VarInt8 => Self::VarInt4.max_value() + 1,
+        }
     }
 
     pub const fn msb(self) -> u8 {
@@ -385,5 +421,26 @@ mod tests {
         assert_eq!(buffer.len(), 34);
         assert_eq!(&buffer[0..2], &[0x40, 32]);
         assert_eq!(&buffer[2..], &[1; 32]);
+    }
+
+    #[test]
+    fn varlen_prefix_remaining_tracks_capacity() {
+        let mut inner = Vec::new();
+        let mut max = MaxLenBuffer::new(&mut inner, 64).unwrap();
+        let varlen_prefix_buffer = VarLengthPrefixBuffer::new(&mut max, 0).unwrap();
+        assert_eq!(varlen_prefix_buffer.remaining(), 63);
+        drop(varlen_prefix_buffer);
+
+        let mut inner = Vec::new();
+        let mut max = MaxLenBuffer::new(&mut inner, 66).unwrap();
+        let varlen_prefix_buffer = VarLengthPrefixBuffer::new(&mut max, 0).unwrap();
+        assert_eq!(varlen_prefix_buffer.remaining(), 64);
+        drop(varlen_prefix_buffer);
+
+        let mut inner = Vec::new();
+        let mut max = MaxLenBuffer::new(&mut inner, 66).unwrap();
+        let mut varlen_prefix_buffer = VarLengthPrefixBuffer::new(&mut max, 0).unwrap();
+        varlen_prefix_buffer.extend_from_slice(&[1; 63]).unwrap();
+        assert_eq!(varlen_prefix_buffer.remaining(), 1);
     }
 }

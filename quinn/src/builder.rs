@@ -14,6 +14,9 @@ use base64ct::Encoding;
 use rand_core::OsRng;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+pub const V1_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
+pub const DEFAULT_MAX_MSG1_PAYLOAD_LEN: usize = 4096;
+
 /// Hyphae handshake configuration builder for Quinn.
 /// 
 /// This builder creates a `HandshakeConfig` that can handle most
@@ -28,6 +31,7 @@ where
     s: Option<&'a [u8]>,
     rs: Option<&'a [u8]>,
     rs_from_server_name: bool,
+    max_msg1_payload_len: usize,
     payload_driver: T,
 }
 
@@ -40,8 +44,13 @@ impl <'a> HandshakeBuilder<'a, EmptyPayloadDriver> {
             s: None,
             rs: None,
             rs_from_server_name: false,
+            max_msg1_payload_len: DEFAULT_MAX_MSG1_PAYLOAD_LEN,
             payload_driver: EmptyPayloadDriver,
         }
+    }
+
+    pub fn new_v1() -> Self {
+        Self::new(V1_PATTERN)
     }
 }
 
@@ -90,8 +99,14 @@ where
             s: self.s,
             rs: self.rs,
             rs_from_server_name: self.rs_from_server_name,
+            max_msg1_payload_len: self.max_msg1_payload_len,
             payload_driver,
         }
+    }
+
+    pub fn with_max_msg1_payload_len(mut self, max_msg1_payload_len: usize) -> Self {
+        self.max_msg1_payload_len = max_msg1_payload_len;
+        self
     }
 
     /// Set the remote public key to the `server_name` parameter for
@@ -122,6 +137,10 @@ where
     pub fn build<B: SyncCryptoBackend> (self, crypto_backend: B)
         -> Result<Arc<HyphaeCryptoConfig<BasicHandshakeConfig<T>, B>>, CryptoError>
     {
+        if self.protocol != V1_PATTERN {
+            return Err(CryptoError::UnsupportedPattern);
+        }
+
         if !crypto_backend.protocol_supported(&self.protocol) {
             return Err(CryptoError::UnsupportedProtocol);
         }
@@ -140,6 +159,7 @@ where
             s: self.s.map(Vec::from),
             rs: self.rs.map(Vec::from),
             rs_from_server_name: self.rs_from_server_name,
+            max_msg1_payload_len: self.max_msg1_payload_len,
             payload_driver: self.payload_driver
         })
     }
@@ -156,6 +176,7 @@ pub struct BasicHandshakeConfig<T: PayloadDriver + Clone> {
     s: Option<Vec<u8>>,
     rs: Option<Vec<u8>>,
     rs_from_server_name: bool,
+    max_msg1_payload_len: usize,
     #[zeroize(skip)]
     payload_driver: T,
 }
@@ -184,7 +205,10 @@ where
             sn_rs.as_ref().or(self.rs.as_ref()).map(Vec::as_slice))?;
         
         Ok(BasicHandshakeDriver{
-            payload_driver: self.payload_driver.clone()
+            payload_driver: self.payload_driver.clone(),
+            msg1_payload: None,
+            negotiated_pattern: self.protocol.clone(),
+            max_msg1_payload_len: self.max_msg1_payload_len,
         })
     }
 
@@ -201,7 +225,10 @@ where
             self.rs.as_ref().map(Vec::as_slice))?;
         
         Ok(BasicHandshakeDriver{
-            payload_driver: self.payload_driver.clone()
+            payload_driver: self.payload_driver.clone(),
+            msg1_payload: None,
+            negotiated_pattern: self.protocol.clone(),
+            max_msg1_payload_len: self.max_msg1_payload_len,
         })
     }
 }
@@ -212,6 +239,9 @@ where
 /// and defaults all other handshake behavior.
 pub struct BasicHandshakeDriver<T: PayloadDriver + Clone> {
     payload_driver: T,
+    msg1_payload: Option<Vec<u8>>,
+    negotiated_pattern: String,
+    max_msg1_payload_len: usize,
 }
 
 impl <T: PayloadDriver + QuinnHandshakeData + Clone> HandshakeDriver for BasicHandshakeDriver<T> {}
@@ -219,10 +249,30 @@ impl <T: PayloadDriver + QuinnHandshakeData + Clone> HandshakeDriver for BasicHa
 impl <T: PayloadDriver + QuinnHandshakeData + Clone> PayloadDriver for BasicHandshakeDriver<T> {
 
     fn write_noise_payload(&mut self, payload_buffer: &mut impl Buffer, noise_handshake: &mut impl HandshakeInfo) -> Result<(), Error> {
+        let capture_msg1 = noise_handshake.is_initiator() && noise_handshake.handshake_position() == Some(1);
+        let start_len = payload_buffer.len();
         self.payload_driver.write_noise_payload(payload_buffer, noise_handshake)
+            ?;
+
+        if capture_msg1 {
+            let payload = &payload_buffer.as_ref()[start_len..];
+            if payload.len() > self.max_msg1_payload_len {
+                return Err(Error::BufferSize);
+            }
+            self.msg1_payload = Some(payload.to_vec());
+        }
+
+        Ok(())
     }
 
     fn read_noise_payload(&mut self, payload: &[u8], noise_handshake: &mut impl HandshakeInfo) -> Result<(), Error> {
+        if !noise_handshake.is_initiator() && noise_handshake.handshake_position() == Some(1) {
+            if payload.len() > self.max_msg1_payload_len {
+                return Err(Error::BufferSize);
+            }
+            self.msg1_payload = Some(payload.to_vec());
+        }
+
         self.payload_driver.read_noise_payload(payload, noise_handshake)
     }
 }
@@ -230,14 +280,17 @@ impl <T: PayloadDriver + QuinnHandshakeData + Clone> PayloadDriver for BasicHand
 impl <T: PayloadDriver + QuinnHandshakeData + Clone> QuinnHandshakeData for BasicHandshakeDriver<T> {
     type HandshakeData = T::HandshakeData;
 
-    type PeerIdentity = T::PeerIdentity;
+    type PeerIdentity = HyphaePeerIdentity;
 
     fn handshake_data(&self) -> Option<Self::HandshakeData> {
         self.payload_driver.handshake_data()
     }
 
     fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<Self::PeerIdentity> {
-        self.payload_driver.peer_identity(remote_public, final_handshake_hash)
+        let mut identity = HyphaePeerIdentity::new(remote_public, final_handshake_hash);
+        identity.msg1_payload = self.msg1_payload.clone();
+        identity.negotiated_pattern = self.negotiated_pattern.clone();
+        Some(identity)
     }
 }
 

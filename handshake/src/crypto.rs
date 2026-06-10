@@ -17,6 +17,7 @@ pub enum CryptoError {
     DecryptionFailed,
     InvalidProtocol,
     UnsupportedProtocol,
+    UnsupportedPattern,
     UnsupportedSecretKey,
     InvalidInitialization,
     InvalidKeySize,

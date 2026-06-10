@@ -15,12 +15,13 @@ authors.workspace = true
 [dependencies]
 hyphae-handshake = { workspace = true, features = [ "alloc" ] }
 base16ct = { version = "0.2.0", features = ["std"] }
-base64ct = { version = "1.6.0", features = ["std"] }
-bytes = { version = "1", default-features = false }
-quinn = { version = "0.11", default-features = false, optional = true }
-quinn-proto = { version = "0.11", default-features = false }
+base64ct = { version = "1.8.3", features = ["std"] }
+bytes = { version = "1.11.1", default-features = false }
+quinn = { version = "0.11.9", default-features = false, optional = true }
+quinn-proto = { version = "0.11.14", default-features = false }
 rand_core = { version = "0.6.4", features = ["getrandom"] }
-zeroize = { version = "1.8.1", default-features = false, features = ["zeroize_derive", "alloc"] }
+tokio = { version = "1.52.3", features = ["time"] }
+zeroize = { version = "1.8.2", default-features = false, features = ["zeroize_derive", "alloc"] }
 
 [features]
 default = [ "rustcrypto", "helper" ]
@@ -29,6 +30,6 @@ keylog = [ "hyphae-handshake/keylog" ]
 rustcrypto = [ "hyphae-handshake/rustcrypto" ]
 
 [dev-dependencies]
-anyhow = { version = "1.0" }
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio"] }
-tokio = { version = "1.40.0", features = ["full"] }
+anyhow = { version = "1.0.102" }
+quinn = { version = "0.11.9", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1.52.3", features = ["full"] }
