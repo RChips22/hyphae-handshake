@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 use crate::{crypto::{CryptoBackend, CryptoError, NoiseHandshake, SecretKeySetup, SymmetricKey, TransportRekey}, handshake::HYPHAE_KEY_ASK_LABEL, crypto::noise::x25519::PublicKey};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -100,6 +102,14 @@ pub struct KeyLoggingNoiseHandshake<R: SecretReceiver, X: NoiseHandshake> {
     noise_protocol: Option<String>,
     position: u8,
     inner: X,
+}
+
+impl<R: SecretReceiver, X: NoiseHandshake> Zeroize for KeyLoggingNoiseHandshake<R, X> {
+    fn zeroize(&mut self) {
+        self.initiator_ephemeral.zeroize();
+        self.noise_protocol.zeroize();
+        self.inner.zeroize();
+    }
 }
 
 impl <R, X> KeyLoggingNoiseHandshake<R, X>

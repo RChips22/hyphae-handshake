@@ -56,6 +56,8 @@ pub struct AllocHyphaeHandshake<T: HandshakeDriver, B: CryptoBackend, R: Deref<T
     peer_transport_params: Option<Vec<u8>>,
     peer_zero_rtt_accepted: Option<bool>,
     next_level_secret_ready: bool,
+    final_handshake_hash_cache: Option<Vec<u8>>,
+    remote_public_cache: Option<Vec<u8>>,
 }
 
 #[cfg(feature = "alloc")]
@@ -93,6 +95,8 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
             peer_transport_params: None,
             peer_zero_rtt_accepted: None,
             next_level_secret_ready: false,
+            final_handshake_hash_cache: None,
+            remote_public_cache: None,
         })
     }
 
@@ -128,6 +132,8 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
             peer_transport_params: None,
             peer_zero_rtt_accepted: None,
             next_level_secret_ready: false,
+            final_handshake_hash_cache: None,
+            remote_public_cache: None,
         };
 
         if preamble.is_empty() {
@@ -164,9 +170,8 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
     /// Returns true once this peer has sent and received its final
     /// message.
     /// 
-    /// At this point, all handshake state can be discarded.
+    /// At this point, all handshake key material has been zeroized.
     pub fn is_handshake_finalized(&self) -> bool {
-        //todo, broken, fix this - also need to dispose of noise handshake before reading each other's finals to clear keys in case the other side never responds
         match self.phase {
             AllocHyphaeHandshakePhase::Initiator(AllocHyphaeInitiatorPhase::Finalized) => true,
             AllocHyphaeHandshakePhase::Responder(AllocHyphaeResponderPhase::Finalized) => true,
@@ -179,10 +184,16 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
     }
 
     pub fn remote_public(&self) -> Option<&[u8]> {
+        if let Some(ref cached) = self.remote_public_cache {
+            return Some(cached.as_slice());
+        }
         self.noise_handshake.remote_public()
     }
 
     pub fn final_handshake_hash(&self) -> Option<&[u8]> {
+        if let Some(ref cached) = self.final_handshake_hash_cache {
+            return Some(cached.as_slice());
+        }
         match self.noise_handshake.is_finished() {
             true => Some(self.noise_handshake.handshake_hash()),
             false => None,
@@ -262,9 +273,11 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
                 }
 
                 write_final(buffer, self.noise_handshake.as_mut(), self.handshake_driver.as_mut())?;
-                // Todo, destroy noise handshake state here.
                 match received_final {
-                    true => *phase = AllocHyphaeInitiatorPhase::Finalized,
+                    true => {
+                        cache_hash_and_zeroize(&mut self.final_handshake_hash_cache, &mut self.remote_public_cache, &mut self.noise_handshake);
+                        *phase = AllocHyphaeInitiatorPhase::Finalized;
+                    }
                     false => *phase = AllocHyphaeInitiatorPhase::RecvFinal,
                 }
                 Ok(())
@@ -316,7 +329,10 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
                     AllocHyphaeResponderPhase::SendFinal { received_final: false } => {
                         *phase = AllocHyphaeResponderPhase::SendFinal { received_final: true }
                     },
-                    _ => *phase = AllocHyphaeResponderPhase::Finalized,
+                    _ => {
+                        cache_hash_and_zeroize(&mut self.final_handshake_hash_cache, &mut self.remote_public_cache, &mut self.noise_handshake);
+                        *phase = AllocHyphaeResponderPhase::Finalized;
+                    }
                 }
 
                 Ok(())
@@ -373,9 +389,11 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
                 }
 
                 write_final(buffer, self.noise_handshake.as_mut(), self.handshake_driver.as_mut())?;
-                // Todo, destroy noise handshake state here.
                 match received_final {
-                    true => *phase = AllocHyphaeResponderPhase::Finalized,
+                    true => {
+                        cache_hash_and_zeroize(&mut self.final_handshake_hash_cache, &mut self.remote_public_cache, &mut self.noise_handshake);
+                        *phase = AllocHyphaeResponderPhase::Finalized;
+                    }
                     false => *phase = AllocHyphaeResponderPhase::RecvFinal,
                 }
                 Ok(())
@@ -449,7 +467,10 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
                     AllocHyphaeInitiatorPhase::SendFinal { received_final: false } => {
                         *phase = AllocHyphaeInitiatorPhase::SendFinal { received_final: true }
                     },
-                    _ => *phase = AllocHyphaeInitiatorPhase::Finalized,
+                    _ => {
+                        cache_hash_and_zeroize(&mut self.final_handshake_hash_cache, &mut self.remote_public_cache, &mut self.noise_handshake);
+                        *phase = AllocHyphaeInitiatorPhase::Finalized;
+                    }
                 }
 
                 Ok(())
@@ -494,6 +515,22 @@ impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHan
         }
         Ok(())
     }
+
+}
+
+fn cache_hash_and_zeroize(cache: &mut Option<Vec<u8>>, remote: &mut Option<Vec<u8>>, noise: &mut Box<impl NoiseHandshake>) {
+    if cache.is_none() {
+        let hash = noise.handshake_hash();
+        if hash.len() >= 32 {
+            *cache = Some(hash[..32].to_vec());
+        }
+    }
+    if remote.is_none() {
+        if let Some(pk) = noise.remote_public() {
+            *remote = Some(pk.to_vec());
+        }
+    }
+    noise.zeroize();
 }
 
 enum AllocHyphaeHandshakePhase {

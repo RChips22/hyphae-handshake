@@ -124,7 +124,7 @@ pub trait CryptoBackend {
 
 }
 
-pub trait NoiseHandshake {
+pub trait NoiseHandshake: Zeroize {
     fn initialize<'a> (
         &mut self,
         rng: &mut (impl CryptoRng + RngCore),
