@@ -26,13 +26,6 @@ pub trait QuinnHandshakeData {
     /// Quinn wraps this in a `Box<dyn Any>`.
     type HandshakeData: 'static;
 
-    /// Peer identity data type returned by calls to `peer_identity()`.
-    /// 
-    /// `EmptyPayloadDriver` sets this to `HyphaePeerIdentity`.
-    /// 
-    /// Quinn wraps this in a `Box<dyn Any>`.
-    type PeerIdentity: 'static;
-
     /// Supply early handshake data to callers of `handshake_data()`.
     /// 
     /// This may be called multiple times (or never) as it is a direct
@@ -48,10 +41,8 @@ pub trait QuinnHandshakeData {
     /// handshake is finished.
     /// 
     /// The remote public key and final Noise handshake hash are
-    /// supplied if they are available. You can use these to create a
-    /// `HyphaePeerIdentity` or a custom type for your application
-    /// specific handshake.
-    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<Self::PeerIdentity>;
+    /// supplied if they are available.
+    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<HyphaePeerIdentity>;
 }
 
 /// Default type for Hyphae peer identities.

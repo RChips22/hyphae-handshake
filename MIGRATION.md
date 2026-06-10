@@ -1,69 +1,101 @@
-# Migration to V1 Handshake API
+# Migration to V2 Handshake API
 
-This release introduces a V1 constrained handshake surface with a single allowed pattern:
+This release consolidates the handshake API for extensibility and future-proofing.
 
-- `Noise_XX_25519_ChaChaPoly_BLAKE2s`
+Key principle: **all public types are `#[non_exhaustive]`** — future releases can add
+fields/variants without semver breaks. Construct them via `::new()` or `::default()`,
+never with struct literals.
 
-## Old -> New API
+## V1 → V2 Breaking Changes
 
-- Old client connect flow:
-  - build endpoint/config manually
-  - call `endpoint.connect(...).await?`
-  - call `conn.peer_identity()` and downcast
+| V1 name | V2 name | Notes |
+|---------|---------|-------|
+| `HandshakeResultV1` | `HandshakeResult` | `#[non_exhaustive]`; use `HandshakeResult::new(...)` |
+| `HandshakeApiError` | `HandshakeError` | `#[non_exhaustive]`; variants renamed (`KeyError` → `Key`, etc.) |
+| `HandshakeOptions.expected_pattern` | removed | validation is now internal |
+| `HandshakeOptions.allowed_patterns` | moved to `HandshakeBuilder::with_allowed_patterns()` | compile-time config |
+| `HandshakeBuilder::with_max_msg1_payload_len()` | moved to `HandshakeOptions.max_payload_len` | runtime config |
+| `QuinnHandshakeData::PeerIdentity` | removed | return type fixed to `HyphaePeerIdentity`; generic bounds simplified |
 
-- New client connect flow:
-  - keep endpoint/config setup
-  - call `client_connect(&endpoint, addr, server_name, options).await?`
-  - receive `(Connection, HandshakeResultV1)`
+## V2 Types
 
-- Old server accept flow:
-  - call `endpoint.accept().await?.await?`
-  - call `conn.peer_identity()` and downcast
+### `HandshakeResult` (was `HandshakeResultV1`)
+```rust
+#[non_exhaustive]
+pub struct HandshakeResult {
+    pub handshake_hash: [u8; 32],
+    pub peer_static: Option<[u8; 32]>,
+    pub msg1_payload: Option<Vec<u8>>,
+    pub negotiated_pattern: String,
+}
+```
 
-- New server accept flow:
-  - call `server_accept(&endpoint, options).await?`
-  - receive `(Connection, HandshakeResultV1)`
+### `HandshakeError` (was `HandshakeApiError`)
+```rust
+#[non_exhaustive]
+pub enum HandshakeError {
+    Pattern(String),
+    Key(String),
+    Io(String),
+    Payload(String),
+    Timeout,
+    Crypto(String),
+}
+```
 
-## New Result + Options Types
+### `HandshakeOptions`
+```rust
+#[non_exhaustive]
+pub struct HandshakeOptions {
+    pub timeout: Duration,
+    pub max_payload_len: usize,
+    pub pinned_peer_key: Option<[u8; 32]>,
+    pub handshake_hook: Option<Arc<dyn Fn(HandshakeStage) + Send + Sync>>,
+    pub anti_downgrade_hook: Option<Arc<dyn Fn(&HandshakeResult) -> Result<(), HandshakeError> + Send + Sync>>,
+}
+```
 
-- `HandshakeResultV1`
-  - `handshake_hash: [u8; 32]`
-  - `peer_static: Option<[u8; 32]>`
-  - `msg1_payload: Option<Vec<u8>>`
-  - `negotiated_pattern: String`
+### `HandshakeStage`
+```rust
+#[non_exhaustive]
+pub enum HandshakeStage {
+    ClientConnecting,
+    ServerAccepted,
+    ConnectionEstablished,
+    HandshakeComplete,
+}
+```
 
-- `HandshakeOptions`
-  - `timeout`
-  - `max_payload_len`
-  - `expected_pattern`
-  - `allowed_patterns` — whitelist of acceptable Noir patterns (default: `[V1_PATTERN]`)
-  - `pinned_peer_key` — optional peer static key to pin; fails with `KeyError` on mismatch
-  - `handshake_hook` — lifecycle stage callback (`HandshakeStage`)
-  - `anti_downgrade_hook`
+## Entry Points (unchanged signatures, new types)
 
-- `HandshakeStage` enum (non-sensitive debug stages):
-  - `ClientConnecting`
-  - `ServerAccepted`
-  - `ConnectionEstablished`
-  - `HandshakeComplete`
+```rust
+pub async fn client_connect(
+    endpoint: &Endpoint,
+    remote_addr: SocketAddr,
+    server_name: &str,
+    options: HandshakeOptions,
+) -> Result<(Connection, HandshakeResult), HandshakeError>;
 
-## Error Mapping
-
-New layered API errors use:
-
-- `UnsupportedPattern`
-- `PatternError`
-- `KeyError`
-- `IoError`
-- `PayloadError`
-- `Timeout`
-- `CryptoError` — wraps lower-level crypto failures
+pub async fn server_accept(
+    endpoint: &Endpoint,
+    options: HandshakeOptions,
+) -> Result<(Connection, HandshakeResult), HandshakeError>;
+```
 
 ## Builder Changes
 
-- `HandshakeBuilder::new_v1()` is provided and recommended.
-- `HandshakeBuilder::build(...)` rejects patterns not in the allowed list with `CryptoError::UnsupportedPattern`.
-- `HandshakeBuilder::with_allowed_patterns(...)` sets the accepted Noise protocol whitelist.
-- `HandshakeBuilder::with_rng_factory(...)` injects a custom cryptographic RNG factory.
-- `HandshakeBuilder::with_max_msg1_payload_len(...)` sets msg1 payload limits.
-- `RngFactory` type and `SecureRng` trait provide RNG abstraction over `OsRng`.
+- `HandshakeBuilder::with_max_msg1_payload_len()` removed — use `HandshakeOptions::max_payload_len` instead.
+- `HandshakeBuilder::with_allowed_patterns()` sets compile-time pattern whitelist.
+- `HandshakeBuilder::with_rng_factory()` injects custom RNG.
+- `QuinnHandshakeData` no longer has `PeerIdentity` associated type — `peer_identity()` always returns `Option<HyphaePeerIdentity>`.
+
+## Architected for Replaceability
+
+V2 types are designed so individual components can be upgraded or replaced
+without touching the high-level API:
+
+- **RNG**: `RngFactory` / `SecureRng` trait — swap `OsRng` for HSM, deterministic, etc.
+- **Crypto**: `CryptoBackend` trait — plug in `ring`, `aws-lc-rs`, or custom backend.
+- **Payload**: `PayloadDriver` trait — customize initiator/responder payloads.
+- **Lifecycle**: `handshake_hook` callback — add metrics, tracing, without API break.
+- **Errors**: `#[non_exhaustive]` enum — add new error categories without breaking `match`.

@@ -9,7 +9,7 @@ use tokio::time::Duration;
 use crate::RustCryptoBackend;
 use crate::HandshakeBuilder;
 use crate::V1_PATTERN;
-use crate::api::{HandshakeApiError, HandshakeOptions, client_connect, server_accept};
+use crate::api::{HandshakeError, HandshakeOptions, client_connect, server_accept};
 use crate::buffer::Buffer;
 use crate::customization::{HandshakeInfo, PayloadDriver};
 use crate::helper::{hyphae_client_endpoint, hyphae_server_endpoint};
@@ -64,13 +64,11 @@ impl PayloadDriver for Msg1PayloadDriver {
 impl QuinnHandshakeData for Msg1PayloadDriver {
     type HandshakeData = ();
 
-    type PeerIdentity = HyphaePeerIdentity;
-
     fn handshake_data(&self) -> Option<Self::HandshakeData> {
         Some(())
     }
 
-    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<Self::PeerIdentity> {
+    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<HyphaePeerIdentity> {
         Some(HyphaePeerIdentity::new(remote_public, final_handshake_hash))
     }
 }
@@ -163,18 +161,16 @@ async fn handshake_timeout_is_enforced() {
     let server_socket = UdpSocket::bind(listen_addr).unwrap();
     let server_endpoint = hyphae_server_endpoint(server_crypto, None, server_socket).unwrap();
 
-    let options = HandshakeOptions {
-        timeout: Duration::from_millis(30),
-        ..HandshakeOptions::default()
-    };
+    let mut options = HandshakeOptions::default();
+    options.timeout = Duration::from_millis(30);
 
     let result = server_accept(&server_endpoint, options).await;
-    assert!(matches!(result, Err(HandshakeApiError::Timeout)));
+    assert!(matches!(result, Err(HandshakeError::Timeout)));
 }
 
 #[tokio::test]
 async fn oversize_payload_is_rejected() {
-    let payload = vec![7u8; 5120];
+    let payload = vec![7u8; 200];
     let client_s = RustCryptoBackend.new_secret_key(&mut OsRng);
     let server_s = RustCryptoBackend.new_secret_key(&mut OsRng);
 
@@ -202,15 +198,13 @@ async fn oversize_payload_is_rejected() {
     let client_task = async move {
         let client_socket = UdpSocket::bind(listen_addr).unwrap();
         let client_endpoint = hyphae_client_endpoint(client_crypto, None, client_socket).unwrap();
-        let options = HandshakeOptions {
-            max_payload_len: 4096,
-            ..HandshakeOptions::default()
-        };
+    let mut options = HandshakeOptions::default();
+    options.max_payload_len = 100;
         client_connect(&client_endpoint, server_addr, "", options).await
     };
 
     let (_server_result, client_result) = tokio::join!(server_task, client_task);
-    assert!(matches!(client_result, Err(HandshakeApiError::IoError(_)) | Err(HandshakeApiError::PayloadError(_))));
+    assert!(matches!(client_result, Err(HandshakeError::Io(_)) | Err(HandshakeError::Payload(_))));
 }
 
 async fn echo_server_test<IC, IB, RC, RB> (

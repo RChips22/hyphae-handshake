@@ -67,7 +67,7 @@ pub use builder::HandshakeBuilder;
 pub use builder::V1_PATTERN;
 pub use rng::{default_rng_factory, RngFactory};
 #[cfg(any(test, feature = "helper"))]
-pub use api::{client_connect, server_accept, HandshakeApiError, HandshakeOptions, HandshakeResultV1, HandshakeStage};
+pub use api::{client_connect, server_accept, HandshakeError, HandshakeOptions, HandshakeResult, HandshakeStage};
 pub use customization::HyphaePeerIdentity;
 
 #[cfg(test)]

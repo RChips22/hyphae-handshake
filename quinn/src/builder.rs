@@ -15,7 +15,7 @@ use crate::rng::{default_rng_factory, DynRng, RngFactory};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const V1_PATTERN: &str = "Noise_XX_25519_ChaChaPoly_BLAKE2s";
-pub const DEFAULT_MAX_MSG1_PAYLOAD_LEN: usize = 4096;
+const MAX_MSG1_PAYLOAD_LEN: usize = 65536;
 
 /// Hyphae handshake configuration builder for Quinn.
 /// 
@@ -47,7 +47,7 @@ impl <'a> HandshakeBuilder<'a, EmptyPayloadDriver> {
             s: None,
             rs: None,
             rs_from_server_name: false,
-            max_msg1_payload_len: DEFAULT_MAX_MSG1_PAYLOAD_LEN,
+            max_msg1_payload_len: MAX_MSG1_PAYLOAD_LEN,
             rng_factory: default_rng_factory(),
             payload_driver: EmptyPayloadDriver,
         }
@@ -108,11 +108,6 @@ where
             rng_factory: self.rng_factory,
             payload_driver,
         }
-    }
-
-    pub fn with_max_msg1_payload_len(mut self, max_msg1_payload_len: usize) -> Self {
-        self.max_msg1_payload_len = max_msg1_payload_len;
-        self
     }
 
     /// Inject a custom RNG factory for cryptographic random number generation.
@@ -313,13 +308,11 @@ impl <T: PayloadDriver + QuinnHandshakeData + Clone> PayloadDriver for BasicHand
 impl <T: PayloadDriver + QuinnHandshakeData + Clone> QuinnHandshakeData for BasicHandshakeDriver<T> {
     type HandshakeData = T::HandshakeData;
 
-    type PeerIdentity = HyphaePeerIdentity;
-
     fn handshake_data(&self) -> Option<Self::HandshakeData> {
         self.payload_driver.handshake_data()
     }
 
-    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<Self::PeerIdentity> {
+    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<HyphaePeerIdentity> {
         let mut identity = HyphaePeerIdentity::new(remote_public, final_handshake_hash);
         identity.msg1_payload = self.msg1_payload.clone();
         identity.negotiated_pattern = self.negotiated_pattern.clone();
@@ -353,13 +346,11 @@ impl PayloadDriver for EmptyPayloadDriver {
 impl QuinnHandshakeData for EmptyPayloadDriver {
     type HandshakeData = ();
 
-    type PeerIdentity = HyphaePeerIdentity;
-
     fn handshake_data(&self) -> Option<Self::HandshakeData> {
         Some(())
     }
 
-    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<Self::PeerIdentity> {
+    fn peer_identity(&self, remote_public: Option<&[u8]>, final_handshake_hash: Option<&[u8]>) -> Option<HyphaePeerIdentity> {
         Some(HyphaePeerIdentity::new(remote_public, final_handshake_hash))
     }
 }
