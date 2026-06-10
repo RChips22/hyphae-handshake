@@ -61,6 +61,17 @@ pub struct AllocHyphaeHandshake<T: HandshakeDriver, B: CryptoBackend, R: Deref<T
 }
 
 #[cfg(feature = "alloc")]
+impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> Drop for AllocHyphaeHandshake<T, B, R> {
+    fn drop(&mut self) {
+        cache_hash_and_zeroize(
+            &mut self.final_handshake_hash_cache,
+            &mut self.remote_public_cache,
+            &mut self.noise_handshake,
+        );
+    }
+}
+
+#[cfg(feature = "alloc")]
 impl <T: HandshakeDriver, B: CryptoBackend, R: Deref<Target = B>> AllocHyphaeHandshake<T, B, R> {
     pub fn new_initiator<C> (handshake_config: &C, crypto: R, version: HandshakeVersion, transport_label: &[u8], transport_params: Vec<u8>, server_name: &str) -> Result<Self, Error>
     where
