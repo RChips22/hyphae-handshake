@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "hyphae-handshake"
-version = "0.1.0-beta.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "aes-gcm",
  "blake2",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "quinn-hyphae"
-version = "0.1.0-beta.0"
+version = "0.1.0-beta.1"
 dependencies = [
  "anyhow",
  "base16ct",

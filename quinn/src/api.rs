@@ -64,7 +64,8 @@ pub struct HandshakeOptions {
     /// extracted but before it is returned. Return `Err(...)` to
     /// reject the connection.
     /// Default: `None`.
-    pub anti_downgrade_hook: Option<Arc<dyn Fn(&HandshakeResult) -> Result<(), HandshakeError> + Send + Sync>>,
+    pub anti_downgrade_hook:
+        Option<Arc<dyn Fn(&HandshakeResult) -> Result<(), HandshakeError> + Send + Sync>>,
 }
 
 impl HandshakeOptions {
@@ -128,7 +129,12 @@ impl HandshakeResult {
         msg1_payload: Option<Vec<u8>>,
         negotiated_pattern: String,
     ) -> Self {
-        Self { handshake_hash, peer_static, msg1_payload, negotiated_pattern }
+        Self {
+            handshake_hash,
+            peer_static,
+            msg1_payload,
+            negotiated_pattern,
+        }
     }
 }
 
@@ -294,7 +300,9 @@ fn extract_result(
                 return Err(HandshakeError::Key("peer key mismatch".to_owned()));
             }
             None => {
-                return Err(HandshakeError::Key("peer provides no static key for pinning".to_owned()));
+                return Err(HandshakeError::Key(
+                    "peer provides no static key for pinning".to_owned(),
+                ));
             }
             _ => {}
         }

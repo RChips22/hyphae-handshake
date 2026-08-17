@@ -6,9 +6,9 @@
 //! Unlike other Noise handshake proposals for QUIC, Hyphae supports *all
 //! Noise handshake patterns* (not just IK). Hyphae supports custom Noise
 //! payloads.
-//! 
+//!
 //! ### Features:
-//! 
+//!
 //! - Secure QUIC connections with a Noise handshake instead of TLS
 //! - Use **any handshake pattern**, AEAD, and hash algorithm (not just IK)
 //! - Quinn support in the `quinn-hyphae` crate
@@ -18,21 +18,21 @@
 //!     for Rust Crypto)
 //! - Optional key-logging for diagnostics
 //! - QUIC header protection and initial packet space obfuscation
-//! 
+//!
 //! ### Examples
-//! 
+//!
 //! See the [README](https://github.com/WillBuik/hyphae-handshake)
 //! for more info and examples.
-//! 
+//!
 
+#[cfg(any(test, feature = "helper"))]
+pub mod api;
 pub mod builder;
 pub mod config;
 pub mod customization;
-pub mod rng;
-#[cfg(any(test, feature = "helper"))]
-pub mod api;
 #[cfg(any(test, feature = "helper"))]
 pub mod helper;
+pub mod rng;
 mod session;
 mod sessionkeys;
 pub mod tokenkeys;
@@ -43,10 +43,10 @@ pub use hyphae_handshake::buffer;
 
 /// Re-exported types from `hyphae_handshake::crypto`.
 pub mod crypto {
-    pub use hyphae_handshake::crypto::CryptoError;
     pub use hyphae_handshake::crypto::CryptoBackend;
-    pub use hyphae_handshake::crypto::SyncCryptoBackend;
+    pub use hyphae_handshake::crypto::CryptoError;
     pub use hyphae_handshake::crypto::SecretKeySetup;
+    pub use hyphae_handshake::crypto::SyncCryptoBackend;
 
     // Re-export Hyphae keylog.
     #[cfg(feature = "keylog")]
@@ -63,12 +63,15 @@ pub use hyphae_handshake::quic::HYPHAE_H_V1_QUIC_V1_VERSION;
 pub use hyphae_handshake::Error;
 
 // Re-export common `quinn_hyphae` types.
+#[cfg(any(test, feature = "helper"))]
+pub use api::{
+    client_connect, server_accept, HandshakeError, HandshakeOptions, HandshakeResult,
+    HandshakeStage,
+};
 pub use builder::HandshakeBuilder;
 pub use builder::V1_PATTERN;
-pub use rng::{default_rng_factory, RngFactory};
-#[cfg(any(test, feature = "helper"))]
-pub use api::{client_connect, server_accept, HandshakeError, HandshakeOptions, HandshakeResult, HandshakeStage};
 pub use customization::HyphaePeerIdentity;
+pub use rng::{default_rng_factory, RngFactory};
 
 #[cfg(test)]
 mod tests;
